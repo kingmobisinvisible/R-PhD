@@ -1,0 +1,88 @@
+---
+title: "Quant1 Homework 3"
+author: "Carl Smith"
+date: "11/11/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r  results = "asis"}
+# LIBRARIES
+library(tidyverse) # For readr, dplyr
+library(countrycode) # For converting country codes between formats and adding UN region codes for proximity
+library(stargazer) # For regression modeling
+
+# IMPORTING AND FORMATTING DATA
+# AidData Geocoded Global Chinese Official Finance, Version 1.1.1
+# Utilizing transactions categorized as Official Development Flows according to OECD methodology
+# Covers period 2000-2014
+# https://www.aiddata.org/data/geocoded-chinese-global-official-finance-dataset
+aidDataODF <- read_csv("oda-like_flows.csv") %>% 
+  # Selecting relevant columns
+  select(recipient_iso3, usd_current) %>% 
+  # Filtering for non-zero values
+  filter(usd_current != 0) %>% 
+  # Filtering out regional data and keeping individual country data using three-character ISO country codes
+  filter(str_length(recipient_iso3) == 3) %>% 
+  # Grouping by country
+  group_by(recipient_iso3) %>% 
+  # Summarising each country's total aid in millions USD
+  summarise(Total.CN.ODF.in.Mil = sum(usd_current/1000000))
+
+
+# United Nations General Assembly Voting Data - Ideal Point table
+# Voeten, Erik; Strezhnev, Anton; Bailey, Michael
+# https://dataverse.harvard.edu/dataset.xhtml?persistentId=hdl:1902.1/12379
+# Filtered to include only the 70th UN Session, beginning September 2015
+unVoting <- read_tsv("Idealpoints.tab") %>% 
+  # Selecting relevent columns
+  select(session, countryname, idealpointwithpara, pctagreechina, pctagreeus) %>%
+  # Naming key variables
+  mutate(country.name = countryname,
+    ideal.point = idealpointwithpara,
+    # Converting decimals to 1-100 percentages
+    pct.agree.china = pctagreechina * 100,
+    pct.agree.us = pctagreeus * 100
+    ) %>%
+  # Filtering for 70th session beginning September 2015
+  filter(session == 70)
+  # Converting COW Country Codes and names to ISO 3 Character codes to facilitate merging (ugly hack to fix countrycode library not   recognising Yemen Arab Republic as Yemen)
+  yemenFix <- "YEM"
+  names(yemenFix) <- c("Yemen Arab Republic")
+  unVoting$countryISO <- countrycode(unVoting$country.name, "country.name", "iso3c",  warn = TRUE, nomatch = NA, custom_match = yemenFix)
+
+  
+# World Bank GDP, PPP (constant 2011 international $) by country 2015
+# https://data.worldbank.org/indicator/NY.GDP.PCAP.PP.CD?most_recent_year_desc=true
+gdpWorldBank <- read_csv("API_NY.GDP.MKTP.PP.KD_DS2_en_csv_v2_425693.csv") %>% 
+  select('code', '2015') %>%
+  mutate(gdp.2015.in.Bil = `2015`/1000000000)
+
+
+
+
+# MERGING DATA
+merged <- left_join(unVoting, aidDataODF, by = c("countryISO" = "recipient_iso3"))
+merged <- left_join(merged, gdpWorldBank, by = c("countryISO" = "code"))
+  
+# Trimming unnecessary columns
+merged <- merged %>%
+  select(country.name, Total.CN.ODF.in.Mil, pct.agree.china, pct.agree.us, ideal.point, gdp.2015.in.Bil) %>%
+  # Replacing NA with 0
+  mutate(Total.CN.ODF.in.Mil = replace_na(Total.CN.ODF.in.Mil, 0)) %>%
+  mutate(gdp.2015.in.Bil = replace_na(gdp.2015.in.Bil, 0))
+
+
+
+# MODELING
+stargazer(
+  m1 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil, merged),
+  m2 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point, merged),
+  m3 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdp.2015.in.Bil, merged),
+  title = "Percent Agreement with China UN Voting 2015",
+  dep.var.labels = "Percent Agreement",
+  type = "html"
+)
