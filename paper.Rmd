@@ -51,7 +51,7 @@ unVoting <- read_tsv("Idealpoints.tab") %>%
     pct.agree.us = pctagreeus * 100
     ) %>%
   # Filtering for 70th session beginning September 2015
-  filter(session == 70)
+  filter(session == 70, country.name != "Yugoslavia")
   # Converting COW Country Codes and names to ISO 3 Character codes to facilitate merging (ugly hack to fix countrycode library not   recognising Yemen Arab Republic as Yemen)
   yemenFix <- "YEM"
   names(yemenFix) <- c("Yemen Arab Republic")
@@ -75,21 +75,48 @@ cincScore <- read_csv("NMC_5_0.csv") %>%
   mutate(cinc.score = `cinc`) 
 cincScore$countryISO <- countrycode(cincScore$stateabb, "cowc", "iso3c",  warn = TRUE, nomatch = NA, custom_match = yemenFix)
 
-#pander(cincScore)
-
 
 # # MERGING DATA
 merged <- left_join(unVoting, aidDataODF, by = c("countryISO" = "recipient_iso3"))
 merged <- left_join(merged, gdpWorldBank, by = c("countryISO" = "Country Code"))
 merged <- left_join(merged, cincScore, by = c("countryISO" = "countryISO"))
+
+# Adding and coding UN Region data
+merged$un.Region <- countrycode(merged$countryISO, "iso3c", "region" )
+merged <- merged %>%
+  mutate(un.Region.proximity = recode(un.Region, 
+    `Eastern Asia` = 5, # Eastern Asia sub-region
+    `Western Asia` = 4, # Countries in Asia region
+    `Southern Asia` = 4, # Countries in Asia region
+    `Central Asia` = 4, # Countries in Asia region
+    `South-Eastern Asia` = 4, # Countries in Asia region
+    `Australia and New Zealand` = 3, # Countries in Asia region
+    `Melanesia` = 3, # Countries in Asia region
+    `Micronesia` = 3, # Countries in Asia region
+    `Polynesia` = 3, # Countries in Asia region
+    `Northern Africa` = 3, # Countries in regions bordering Asia region
+    `Southern Africa` = 3, # Countries in regions bordering Asia region
+    `Western Africa` = 3, # Countries in regions bordering Asia region
+    `Eastern Africa` = 3, # Countries in regions bordering Asia region
+    `Middle Africa` = 3, # Countries in regions bordering Asia region
+    `Eastern Europe` = 3, # Countries in regions bordering Asia region
+    `Western Europe` = 2, # Countries in regions not bordering Asia region
+    `Southern Europe` = 2, # Countries in regions not bordering Asia region
+    `Northern Europe` = 2, # Countries in regions not bordering Asia region
+    `Northern America` = 2, # Countries in regions not bordering Asia region
+    `Caribbean` = 2, # Countries in regions not bordering Asia region
+    `Central America` = 1, # Countries in further regions not bordering Asia region
+    `South America` = 1, # Countries in further regions not bordering Asia region
+    )
+  )
+
 # Trimming unnecessary columns
 merged <- merged %>%
-  select(country.name, Total.CN.ODF.in.Mil, pct.agree.china, pct.agree.us, ideal.point, gdppc.2014.in.Bil, cinc.score) %>%
+  select(country.name, un.Region, un.Region.proximity, Total.CN.ODF.in.Mil, pct.agree.china, pct.agree.us, ideal.point, gdppc.2014.in.Bil, cinc.score) %>%
   # Replacing NA with 0
   mutate(Total.CN.ODF.in.Mil = replace_na(Total.CN.ODF.in.Mil, 0)) %>%
   mutate(gdppc.2014.in.Bil = replace_na(gdppc.2014.in.Bil, 0))
 
-pander(merged)
 
 # MODELING
 stargazer(
@@ -97,6 +124,7 @@ stargazer(
   m2 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point, merged),
   m3 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil, merged),
   m4 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil + cinc.score, merged),
+  m5 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
   title = "Percent Agreement with China UN Voting 2015",
   dep.var.labels = "Percent Agreement with China UN GA Voting 2015",
   type = "html"
