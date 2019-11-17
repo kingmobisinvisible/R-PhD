@@ -4,18 +4,21 @@ author: "Carl Smith"
 date: "11/11/2019"
 output: html_document
 ---
-
+# Homework 3
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r  results = "asis"}
+### Setup
+```{r}
 # LIBRARIES
 library(tidyverse) # For readr, dplyr, ggplot2
 library(countrycode) # For converting country codes between formats and adding UN region codes for proximity
 library(stargazer) # For regression modeling
-library(pander)
+```
 
+### Importing Data
+```{r results = "asis"}
 # IMPORTING AND FORMATTING DATA
 # Main independent variable
 # AidData Geocoded Global Chinese Official Finance, Version 1.1.1
@@ -74,8 +77,10 @@ cincScore <- read_csv("NMC_5_0.csv") %>%
   filter(year == 2012) %>%
   mutate(cinc.score = `cinc`) 
 cincScore$countryISO <- countrycode(cincScore$stateabb, "cowc", "iso3c",  warn = TRUE, nomatch = NA, custom_match = yemenFix)
+```
 
-
+### Merging, coding and Trimming Data
+```{r results = "asis"}
 # # MERGING DATA
 merged <- left_join(unVoting, aidDataODF, by = c("countryISO" = "recipient_iso3"))
 merged <- left_join(merged, gdpWorldBank, by = c("countryISO" = "Country Code"))
@@ -116,16 +121,25 @@ merged <- merged %>%
   # Replacing NA with 0
   mutate(Total.CN.ODF.in.Mil = replace_na(Total.CN.ODF.in.Mil, 0)) %>%
   mutate(gdppc.2014.in.Bil = replace_na(gdppc.2014.in.Bil, 0))
+```
 
-
-# MODELING
+### Modeling
+```{r results = "asis"}
 stargazer(
   m1 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil, merged),
-  m2 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point, merged),
-  m3 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil, merged),
-  m4 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil + cinc.score, merged),
-  m5 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
+  m2 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
   title = "Percent Agreement with China UN Voting 2015",
   dep.var.labels = "Percent Agreement with China UN GA Voting 2015",
   type = "html"
 )
+```
+
+### Graph
+```{r results = "asis"}
+# GRAPH
+ggplot(merged, aes(x = Total.CN.ODF.in.Mil, y = pct.agree.china)) + 
+  geom_point() +
+  geom_smooth() +
+  labs(x = "Chinese Aid in Millions USD 2000-2014", y = "Percent Agreement with China UNGA Voting 2015",
+       title = "UNGA Voting Agreement with China") +
+  theme_minimal()
