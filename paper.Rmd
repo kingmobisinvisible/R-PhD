@@ -11,11 +11,13 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r  results = "asis"}
 # LIBRARIES
-library(tidyverse) # For readr, dplyr
+library(tidyverse) # For readr, dplyr, ggplot2
 library(countrycode) # For converting country codes between formats and adding UN region codes for proximity
 library(stargazer) # For regression modeling
+library(pander)
 
 # IMPORTING AND FORMATTING DATA
+# Main independent variable
 # AidData Geocoded Global Chinese Official Finance, Version 1.1.1
 # Utilizing transactions categorized as Official Development Flows according to OECD methodology
 # Covers period 2000-2014
@@ -33,6 +35,7 @@ aidDataODF <- read_csv("oda-like_flows.csv") %>%
   summarise(Total.CN.ODF.in.Mil = sum(usd_current/1000000))
 
 
+# Dependent variable
 # United Nations General Assembly Voting Data - Ideal Point table
 # Voeten, Erik; Strezhnev, Anton; Bailey, Michael
 # https://dataverse.harvard.edu/dataset.xhtml?persistentId=hdl:1902.1/12379
@@ -54,35 +57,47 @@ unVoting <- read_tsv("Idealpoints.tab") %>%
   names(yemenFix) <- c("Yemen Arab Republic")
   unVoting$countryISO <- countrycode(unVoting$country.name, "country.name", "iso3c",  warn = TRUE, nomatch = NA, custom_match = yemenFix)
 
-  
-# World Bank GDP, PPP (constant 2011 international $) by country 2015
+ 
+# Control variable   
+# World Bank GDP per capita, PPP (current international $) by country 2014
 # https://data.worldbank.org/indicator/NY.GDP.PCAP.PP.CD?most_recent_year_desc=true
-gdpWorldBank <- read_csv("API_NY.GDP.MKTP.PP.KD_DS2_en_csv_v2_425693.csv") %>% 
-  select('code', '2015') %>%
-  mutate(gdp.2015.in.Bil = `2015`/1000000000)
+gdpWorldBank <- read_csv("API_NY.GDP.PCAP.PP.CD_DS2_en_csv_v2_422115.csv") %>% 
+  select('Country Code', '2014') %>%
+  mutate(gdppc.2014.in.Bil = `2014`)
+
+# Control variable
+# Composite Index of Natonal Capability scores from COW
+# 0-1.0 Composite of total population, urban population, iron and steel production, energy consumption, military personnel, and military expenditure
+# As used by Dreher, Nunnenkamp and Thiele(2008)
+# http://www.correlatesofwar.org/data-sets/national-material-capabilities
+cincScore <- read_csv("NMC_5_0.csv") %>%
+  filter(year == 2012) %>%
+  mutate(cinc.score = `cinc`) 
+cincScore$countryISO <- countrycode(cincScore$stateabb, "cowc", "iso3c",  warn = TRUE, nomatch = NA, custom_match = yemenFix)
+
+#pander(cincScore)
 
 
-
-
-# MERGING DATA
+# # MERGING DATA
 merged <- left_join(unVoting, aidDataODF, by = c("countryISO" = "recipient_iso3"))
-merged <- left_join(merged, gdpWorldBank, by = c("countryISO" = "code"))
-  
+merged <- left_join(merged, gdpWorldBank, by = c("countryISO" = "Country Code"))
+merged <- left_join(merged, cincScore, by = c("countryISO" = "countryISO"))
 # Trimming unnecessary columns
 merged <- merged %>%
-  select(country.name, Total.CN.ODF.in.Mil, pct.agree.china, pct.agree.us, ideal.point, gdp.2015.in.Bil) %>%
+  select(country.name, Total.CN.ODF.in.Mil, pct.agree.china, pct.agree.us, ideal.point, gdppc.2014.in.Bil, cinc.score) %>%
   # Replacing NA with 0
   mutate(Total.CN.ODF.in.Mil = replace_na(Total.CN.ODF.in.Mil, 0)) %>%
-  mutate(gdp.2015.in.Bil = replace_na(gdp.2015.in.Bil, 0))
+  mutate(gdppc.2014.in.Bil = replace_na(gdppc.2014.in.Bil, 0))
 
-
+pander(merged)
 
 # MODELING
 stargazer(
   m1 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil, merged),
   m2 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point, merged),
-  m3 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdp.2015.in.Bil, merged),
+  m3 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil, merged),
+  m4 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil + cinc.score, merged),
   title = "Percent Agreement with China UN Voting 2015",
-  dep.var.labels = "Percent Agreement",
+  dep.var.labels = "Percent Agreement with China UN GA Voting 2015",
   type = "html"
 )
