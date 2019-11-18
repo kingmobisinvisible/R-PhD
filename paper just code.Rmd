@@ -1,0 +1,150 @@
+---
+title: "Quant1 Homework 3"
+author: "Carl Smith"
+date: "11/11/2019"
+output: html_document
+---
+
+#### Setup
+```{r}
+# LIBRARIES
+library(tidyverse) # For readr, dplyr, ggplot2
+library(countrycode) # For converting country codes between formats and adding UN region codes for proximity
+library(stargazer) # For regression modeling
+library(pander) # For checking data tables
+```
+
+#### Importing and Formatting Data
+```{r results = "asis"}
+# Main independent variable
+# AidData Geocoded Global Chinese Official Finance, Version 1.1.1
+# Utilizing transactions categorized as Official Development Flows according to OECD methodology
+# Covers period 2000-2014
+# https://www.aiddata.org/data/geocoded-chinese-global-official-finance-dataset
+aidDataODF <- read_csv("oda-like_flows.csv") %>% 
+  # Selecting relevant columns
+  select(recipient_iso3, usd_current) %>% 
+  # Filtering for non-zero values
+  filter(usd_current != 0) %>% 
+  # Filtering out regional data and keeping individual country data using three-character ISO country codes
+  filter(str_length(recipient_iso3) == 3) %>% 
+  # Grouping by country
+  group_by(recipient_iso3) %>% 
+  # Summarising each country's total aid in millions USD
+  summarise(Total.CN.ODF.in.Mil = sum(usd_current/1000000))
+
+
+# Dependent variable
+# United Nations General Assembly Voting Data - Ideal Point table
+# Voeten, Erik; Strezhnev, Anton; Bailey, Michael
+# https://dataverse.harvard.edu/dataset.xhtml?persistentId=hdl:1902.1/12379
+# Filtered to include only the 70th UN Session, beginning September 2015
+unVoting <- read_tsv("Idealpoints.tab") %>% 
+  # Selecting relevent columns
+  select(session, countryname, idealpointwithpara, pctagreechina, pctagreeus) %>%
+  # Naming key variables
+  mutate(country.name = countryname,
+    ideal.point = idealpointwithpara,
+    # Converting decimals to 1-100 percentages
+    pct.agree.china = pctagreechina * 100,
+    pct.agree.us = pctagreeus * 100
+    ) %>%
+  # Filtering for 70th session beginning September 2015
+  filter(session == 70, country.name != "Yugoslavia")
+  # Converting COW Country Codes and names to ISO 3 Character codes to facilitate merging (ugly hack to fix countrycode library not   recognising Yemen Arab Republic as Yemen)
+  yemenFix <- "YEM"
+  names(yemenFix) <- c("Yemen Arab Republic")
+  unVoting$countryISO <- countrycode(unVoting$country.name, "country.name", "iso3c",  warn = TRUE, nomatch = NA, custom_match = yemenFix)
+
+ 
+# Control variable   
+# World Bank GDP per capita, PPP (current international $) by country 2014
+# https://data.worldbank.org/indicator/NY.GDP.PCAP.PP.CD?most_recent_year_desc=true
+gdpWorldBank <- read_csv("API_NY.GDP.PCAP.PP.CD_DS2_en_csv_v2_422115.csv") %>% 
+  select('Country Code', '2014') %>%
+  mutate(gdppc.2014.in.Bil = `2014`)
+
+# Control variable
+# Composite Index of Natonal Capability scores from COW
+# 0-1.0 Composite of total population, urban population, iron and steel production, energy consumption, military personnel, and military expenditure
+# As used by Dreher, Nunnenkamp and Thiele(2008)
+# http://www.correlatesofwar.org/data-sets/national-material-capabilities
+cincScore <- read_csv("NMC_5_0.csv") %>%
+  filter(year == 2012) %>%
+  mutate(cinc.score = `cinc`) 
+cincScore$countryISO <- countrycode(cincScore$stateabb, "cowc", "iso3c",  warn = TRUE, nomatch = NA, custom_match = yemenFix)
+```
+
+#### Merging, coding and Trimming Data
+```{r results = "asis"}
+# # MERGING DATA
+merged <- left_join(unVoting, aidDataODF, by = c("countryISO" = "recipient_iso3"))
+merged <- left_join(merged, gdpWorldBank, by = c("countryISO" = "Country Code"))
+merged <- left_join(merged, cincScore, by = c("countryISO" = "countryISO"))
+
+# Adding and coding UN Region data
+merged$un.Region <- countrycode(merged$countryISO, "iso3c", "region" )
+merged <- merged %>%
+  mutate(un.Region.proximity = recode(un.Region, 
+    `Eastern Asia` = 5, # Eastern Asia sub-region
+    `Western Asia` = 4, # Countries in Asia region
+    `Southern Asia` = 4, # Countries in Asia region
+    `Central Asia` = 4, # Countries in Asia region
+    `South-Eastern Asia` = 4, # Countries in Asia region
+    `Australia and New Zealand` = 3, # Countries in Asia region
+    `Melanesia` = 3, # Countries in Asia region
+    `Micronesia` = 3, # Countries in Asia region
+    `Polynesia` = 3, # Countries in Asia region
+    `Northern Africa` = 3, # Countries in regions bordering Asia region
+    `Southern Africa` = 3, # Countries in regions bordering Asia region
+    `Western Africa` = 3, # Countries in regions bordering Asia region
+    `Eastern Africa` = 3, # Countries in regions bordering Asia region
+    `Middle Africa` = 3, # Countries in regions bordering Asia region
+    `Eastern Europe` = 3, # Countries in regions bordering Asia region
+    `Western Europe` = 2, # Countries in regions not bordering Asia region
+    `Southern Europe` = 2, # Countries in regions not bordering Asia region
+    `Northern Europe` = 2, # Countries in regions not bordering Asia region
+    `Northern America` = 2, # Countries in regions not bordering Asia region
+    `Caribbean` = 2, # Countries in regions not bordering Asia region
+    `Central America` = 1, # Countries in further regions not bordering Asia region
+    `South America` = 1, # Countries in further regions not bordering Asia region
+    )
+  )
+
+# Trimming unnecessary columns
+merged <- merged %>%
+  select(country.name, un.Region, un.Region.proximity, Total.CN.ODF.in.Mil, pct.agree.china, pct.agree.us, ideal.point, gdppc.2014.in.Bil, cinc.score) %>%
+  # Replacing NA with 0
+  mutate(Total.CN.ODF.in.Mil = replace_na(Total.CN.ODF.in.Mil, 0)) %>%
+  mutate(gdppc.2014.in.Bil = replace_na(gdppc.2014.in.Bil, 0))
+
+# Coding Aid Presence Dummy
+merged <- merged %>% 
+  mutate(CN.Aid.Dummy = recode(Total.CN.ODF.in.Mil,
+    `0` = 0,
+    .default = 1
+    )      
+  )
+```
+
+```{r results = "asis"}
+# GRAPH
+ggplot(merged, aes(x = Total.CN.ODF.in.Mil, y = pct.agree.china)) + 
+  geom_point() +
+  geom_smooth() +
+  labs(x = "Chinese Aid in Millions USD 2000-2014", y = "Percent Agreement with China UNGA Voting 2015",
+       title = "Figure 1") +
+  theme_minimal()
+
+stargazer(
+  m1 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil, merged),
+  m2 <- lm(pct.agree.china ~ CN.Aid.Dummy, merged),
+  m3 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
+  m4 <- lm(pct.agree.china ~ CN.Aid.Dummy + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
+  m5 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + CN.Aid.Dummy + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
+  title = "Figure 2",
+  covariate.labels = c("Total Chinese Aid USD", "Chinese Aid Dummy", "L-R Ideal Point", "GDP Per Capita 2014 USD", "National Capability (CINC)", "Proximity based on region"),
+  dep.var.labels = "Percent Agreement with China UN GA Voting 2015",
+  type = "html"
+)
+```
