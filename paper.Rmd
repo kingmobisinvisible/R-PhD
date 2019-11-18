@@ -4,22 +4,18 @@ author: "Carl Smith"
 date: "11/11/2019"
 output: html_document
 ---
-# Homework 3
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
 
-### Setup
+#### Setup
 ```{r}
 # LIBRARIES
 library(tidyverse) # For readr, dplyr, ggplot2
 library(countrycode) # For converting country codes between formats and adding UN region codes for proximity
 library(stargazer) # For regression modeling
+library(pander) # For checking data tables
 ```
 
-### Importing Data
+#### Importing and Formatting Data
 ```{r results = "asis"}
-# IMPORTING AND FORMATTING DATA
 # Main independent variable
 # AidData Geocoded Global Chinese Official Finance, Version 1.1.1
 # Utilizing transactions categorized as Official Development Flows according to OECD methodology
@@ -79,7 +75,7 @@ cincScore <- read_csv("NMC_5_0.csv") %>%
 cincScore$countryISO <- countrycode(cincScore$stateabb, "cowc", "iso3c",  warn = TRUE, nomatch = NA, custom_match = yemenFix)
 ```
 
-### Merging, coding and Trimming Data
+#### Merging, coding and Trimming Data
 ```{r results = "asis"}
 # # MERGING DATA
 merged <- left_join(unVoting, aidDataODF, by = c("countryISO" = "recipient_iso3"))
@@ -121,25 +117,64 @@ merged <- merged %>%
   # Replacing NA with 0
   mutate(Total.CN.ODF.in.Mil = replace_na(Total.CN.ODF.in.Mil, 0)) %>%
   mutate(gdppc.2014.in.Bil = replace_na(gdppc.2014.in.Bil, 0))
-```
 
-### Modeling
-```{r results = "asis"}
-stargazer(
-  m1 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil, merged),
-  m2 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
-  title = "Percent Agreement with China UN Voting 2015",
-  dep.var.labels = "Percent Agreement with China UN GA Voting 2015",
-  type = "html"
-)
+# Coding Aid Presence Dummy
+merged <- merged %>% 
+  mutate(CN.Aid.Dummy = recode(Total.CN.ODF.in.Mil,
+    `0` = 0,
+    .default = 1
+    )      
+  )
 ```
+***
 
-### Graph
+
+#### Introduction   
+<p>Does Chinese development aid make recipient countries more likely to vote with China in the United Nations General Assembly? That is the question I will address in this essay. In the period 2000-2014, China has provided an estimated $354 Billion USD of aid development aid distributed among 104 different countries(Dreher, Fuchs, Parks, Strange, & Tierney, 2017). Over that same period of time, China's presence in world political affairs has continued to increase. AidData Researchers have publicly speculated that China could soon become the world’s biggest aid donor(Griffiths, 2015). Additionally, researchers have questioned China's role in helping to undermine UN Human Rights policy(Watch, 2017). It is important to ask whether there is a relationship between the aid that China provides and the voting patterns in the UN General Assembly and what the consequences of that relationship may be.    
+<p>Most of the work that has been carried out in this area has focused on how US aid influences recipient countries to vote in the General Assembly. Researchers have previously found that US aid was a good predictor of voting in agreement with the United States(Yang, 1999). A newer and wider-ranging study found that while the influence of aid was dependent on the type of aid being employed, the presence of aid strongly predicted voting agreement with the US in the General Assembly. They did not find similar evidence that aid from any of the other G7 countries had a similar effect(Dreher, Nunnenkamp, & Thiele, 2008).
+<p>Clearly further research is necessary to advance understanding of this relationship. I will seek to test the following hypotheses:
+<p>
+1. The amount of aid in USD provided by China will increase the chances of a donor nation voting in agreement with China in the United Nations General Assembly.
+2. The presence of Chinese aid will increase the chances of a donor nation voting in agreement with China in the United Nations General Assembly.
+<p>
+  
+#### Methodology
+I will employ full data for 191 countries. The main dependent variable will be the amount of aid in US Dollars provided by China to each country during the period 2000-2014. This data is taken from the AidData dataset "Geocoded Global Chinese Official Finance, Version 1.1.1" (Bluhm et al., 2019). This is the current standard for work in the study of Chinese development aid. It is maintained by the AidData research lab at the College of William and Mary. To maintain comparability to other work, I have utilized only the aid that is classified as Official Development Aid and not aid classified as Other Flows. Additionally, preliminary analysis showed only a negligible difference between modeling with and without these flows. 
+<p>For the independent variable, I am utilizing UN voting data from Bailey, Strezhnev, and Voeten(2017). They tabulated all United Nations roll call votes from 1946 to 2018. Importantly to this work, they included data for every country showing percentage of voting agreement with China and several other influential countries. Additionally, they estimated left-right ideal points for every country based on a methodology they published in a separate article in the Journal of Conflict Resolution(Bailey, Strezhnev, & Voeton, 2015). For simplicity of analysis and to provide a small time lag, I am only utilizing data for the 70th UN General Assembly session that began in September 2015.
+<p>Following previous research, I am controlling for development using World Bank GDP per capita data for 2015, and for national capability(Dreher et al., 2008) using the Correlates of War CINC score. This is a measure of power based on six elements: military expenditure, military personnel, energy consumption, iron and steel production, urban population, and total population. Additionally I am controlling for left-right voting behavior using the Ideal Point data which that reflects state positions towards the U.S. led liberal order(Bailey et al., 2015) as well as regional proximity utilizing UN region data.
+<p>My analysis utilizes a linear regression comparing the amount of aid in US Dollars during the period 2000-2014 to the percentage of a country's votes in the UN General Assembly that agree with China's vote. Additionally I included a second model comparing a dummy variable coding only the presence or absence of aid to a country's voting record.
+<p>While a more sophisticated model could potentially provide a more robust and detailed analysis by utilizing time-lagged panel data in order to test my hypotheses, a simpler linear regression will still provide important data that can be used to further refine my hypotheses before moving on to a more complex model. 
+ 
+
+#### Results
 ```{r results = "asis"}
 # GRAPH
 ggplot(merged, aes(x = Total.CN.ODF.in.Mil, y = pct.agree.china)) + 
   geom_point() +
   geom_smooth() +
   labs(x = "Chinese Aid in Millions USD 2000-2014", y = "Percent Agreement with China UNGA Voting 2015",
-       title = "UNGA Voting Agreement with China") +
+       title = "Figure 1") +
   theme_minimal()
+
+stargazer(
+  m1 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil, merged),
+  m2 <- lm(pct.agree.china ~ CN.Aid.Dummy, merged),
+  m3 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
+  m4 <- lm(pct.agree.china ~ CN.Aid.Dummy + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
+  m5 <- lm(pct.agree.china ~ Total.CN.ODF.in.Mil + CN.Aid.Dummy + ideal.point + gdppc.2014.in.Bil + cinc.score + un.Region.proximity, merged),
+  title = "Figure 2",
+  covariate.labels = c("Total Chinese Aid USD", "Chinese Aid Dummy", "L-R Ideal Point", "GDP Per Capita 2014 USD", "National Capability (CINC)", "Proximity based on region"),
+  dep.var.labels = "Percent Agreement with China UN GA Voting 2015",
+  type = "html"
+)
+```
+
+<p>The graph shown in figure one does not appear to show any correlation at all between the amount of aid provided and voting agreement, producing a line that is nearly horizontal. However, the sharp hockey-stick bend upward from the left end of the graph initially made me curious that while the amount of aid may not be correlated with voting behavior, the simple presence of it might be. With this in mind, I created the new dummy variable coding 0 for no Chinese aid received at all and 1 for any Chinese aid received to see if any significant correlation could be gleaned from this graph.
+<p>As shown in the table in figure 1, the results of the linear regression show very little statistically significant correlation between either the amount or the presence of Chinese aid and UN voting behavior. By itself, the amount of aid shows a very small correlation which disappears when the control variables are introduced. Similarly, the added dummy variable shows an even higher level of correlation, but that still disappears when the control variables are introduced. 
+<p>Similar to results obtained by previous researchers, voting agreement appears to be strongly correlated to Left-Right Ideal point. This is not very surprising that this basically measures voting similarity to the United States. A strong negative correlation is to be expected. Additionally a higher degree of national capability measured by CINC score has previously been shown to predict a higher level of voting agreement with more authoritarian regimes such as China.
+
+
+#### Concluding 
+<p>From this analysis, I conclude that there is not enough signifigance to draw a meaningful conclusion about UN voting behavior from this data using this method. Given that the previous literature has found somewhat mixed result when looking at other countries, this is not altogether surprising. However, given the importance of a rising China in world politics and the level of granular detail available in these datasets over a long period of time, I believe that further research utilizing more significant modeling would be worth pursuing. 
+
+
